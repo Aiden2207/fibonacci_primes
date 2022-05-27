@@ -3,7 +3,7 @@ use num::BigUint;
 use once_cell::sync::Lazy;
 use std::collections::BTreeMap;
 fn main() {
-    let nums = println!("{}", fibonacci(25561));
+    println!("{}", fibonacci(25561));
 }
 const INDICES: [u32; 51] = [
     3, 4, 5, 7, 11, 13, 17, 23, 29, 43, 47, 83, 131, 137, 359, 431, 433, 449, 509, 569, 571, 2971,
@@ -71,7 +71,7 @@ async fn binary_read_timeout<R: AsyncRead>(
             }
             Err(e) => return Err(e),
         };
-        let mut len = match r.read_u64().await {
+        let len = match r.read_u64().await {
             Ok(i) => i,
             Err(e) if e.kind() == ErrorKind::TimedOut => {
                 return Ok(map);
@@ -82,7 +82,7 @@ async fn binary_read_timeout<R: AsyncRead>(
         let res = r.read_exact(&mut buf).await;
         match res {
             Ok(_) => {
-                let mut num = BigUint::from_bytes_le(&buf);
+                let num = BigUint::from_bytes_le(&buf);
                 map.insert(index, (Instant::now(), num));
             }
             Err(e) if e.kind() == ErrorKind::TimedOut => {
