@@ -1,9 +1,24 @@
 use nalgebra as na;
-use num::BigUint;
+use num_bigint::BigUint;
 use once_cell::sync::Lazy;
 use std::collections::BTreeMap;
-fn main() {
-    println!("{}", fibonacci(25561));
+#[tokio::main]
+async fn main() -> Result<()> {
+    let mut args = std::env::args();
+    let dir = std::fs::canonicalize(args.nth(1).unwrap_or_else(|| ".".into()))?;
+    let config = std::fs::File::open(dir.join("config.json"))?;
+    let config: Config = serde_json::from_reader(config)?;
+    let mut results = BTreeMap::new();
+    for config in config.competitors {
+        let competitor = Competitor::from_config(&config, dir.clone())?;
+        let result = competitor.execute().await?;
+        results.insert(result, config.name);
+    }
+    println!("Final results:");
+    for ((num, time), name) in results {
+        println!("{name}:\nnum: {num}\ntime: {time:?}");
+    }
+    Ok(())
 }
 const INDICES: [u64; 51] = [
     3, 4, 5, 7, 11, 13, 17, 23, 29, 43, 47, 83, 131, 137, 359, 431, 433, 449, 509, 569, 571, 2971,
@@ -25,7 +40,9 @@ fn fibonacci(n: u32) -> BigUint {
 
 use std::io::ErrorKind;
 use std::io::Result;
+use std::path::PathBuf;
 use std::pin::Pin;
+use std::process::Stdio;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::io::*;
@@ -97,15 +114,96 @@ async fn binary_read_timeout<R: AsyncRead>(
         }
     }
 }
-fn verify_fibs(map: &BTreeMap<u64, (Instant, BigUint)>) -> bool {
+fn verify_fibs(map: &BTreeMap<u64, (Instant, BigUint)>) -> usize {
     let mut previous = Instant::now() - Duration::from_secs(10_000_000);
     FIBS.iter()
         .zip(map.iter())
-        .all(|((i, fib), (j, (time, num)))| {
+        .take_while(|((i, fib), (j, (time, num)))| {
             if time < &previous {
                 return false;
             }
             previous = *time;
-            i == j && fib == num
+            i == j && *fib == num
         })
+        .count()
+}
+use tokio::process::Command;
+async fn run_command(mut cmd: Command) -> Result<(usize, Duration)> {
+    let start = Instant::now();
+    let mut child = cmd.spawn()?;
+    let map = binary_read_timeout(
+        child.stdout.as_mut().ok_or(ErrorKind::NotFound)?,
+        Duration::from_secs(60),
+    )
+    .await?;
+    child.kill().await?;
+    let count = verify_fibs(&map);
+    println!("Total count:{}", count);
+    for (i, (_, (time, _))) in map.iter().take(count).enumerate() {
+        println!("Fibonacci prime {} reached in: {:?}", i, *time - start);
+        if i + 1 == count {
+            return Ok((i, *time - start));
+        }
+    }
+    unreachable!()
+}
+async fn setup_command(mut cmd: Command) -> Result<()> {
+    cmd.spawn()?.wait().await?;
+    Ok(())
+}
+
+use serde::{Deserialize, Serialize};
+#[derive(Serialize, Deserialize)]
+struct CommandConfig {
+    command: String,
+    #[serde(default)]
+    args: Vec<String>,
+}
+#[derive(Serialize, Deserialize)]
+struct CompetitorConfig {
+    name: String,
+    #[serde(default)]
+    setup: Vec<CommandConfig>,
+    run: CommandConfig,
+}
+#[derive(Serialize, Deserialize)]
+struct Config {
+    #[serde(default)]
+    competitors: Vec<CompetitorConfig>,
+}
+
+struct Competitor {
+    setup: Vec<Command>,
+    run: Command,
+}
+impl Competitor {
+    fn from_config(config: &CompetitorConfig, mut dir: PathBuf) -> Result<Self> {
+        dir.push(&config.name);
+        let setup = config
+            .setup
+            .iter()
+            .map(|c| {
+                let mut command = Command::new(c.command.as_str());
+                command.args(c.args.iter());
+                command.current_dir(&dir);
+                command.stderr(Stdio::piped());
+                command.stdout(Stdio::piped());
+                command.stdin(Stdio::null());
+                command
+            })
+            .collect::<Vec<_>>();
+        let mut run = Command::new(config.run.command.as_str());
+        run.args(config.run.args.iter());
+        run.current_dir(dir);
+        run.stderr(Stdio::piped());
+        run.stdout(Stdio::piped());
+        run.stdin(Stdio::null());
+        Ok(Self { setup, run })
+    }
+    async fn execute(self) -> Result<(usize, Duration)> {
+        for command in self.setup {
+            setup_command(command).await?;
+        }
+        run_command(self.run).await
+    }
 }

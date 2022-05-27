@@ -12,8 +12,11 @@
         }
       ],
       "run": {
-        "command": "target/release/example",
-        "args": []
+        "command": "cargo",
+        "args": [
+          "run",
+          "--release"
+        ]
       }
     }
   ]
