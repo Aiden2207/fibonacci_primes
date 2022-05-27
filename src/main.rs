@@ -30,7 +30,7 @@ const INDICES: [u64; 51] = [
 static FIBS: Lazy<BTreeMap<u64, BigUint>> = Lazy::new(|| {
     INDICES
         .into_iter()
-        .map(|n| (dbg![n], fibonacci(n as u32)))
+        .map(|n| (n, fibonacci(n as u32)))
         .collect()
 });
 fn fibonacci(n: u32) -> BigUint {
@@ -109,7 +109,14 @@ async fn binary_read_timeout<R: AsyncRead>(
             }
             Err(e) => Err(e).context("Failed to read from child stdout")?,
         };
-        let mut buf = Vec::with_capacity(len as usize);
+        let mut buf = Vec::new();
+        match buf.try_reserve(len as _) {
+            Ok(_) => (),
+            Err(_) => {
+                return Ok(map);
+            }
+        }
+        buf.extend(std::iter::repeat(0u8).take(len as _));
         let res = timeout(limit, r.read_exact(&mut buf))
             .await
             .map_err(|_| ErrorKind::TimedOut.into())
@@ -135,7 +142,6 @@ fn verify_fibs(map: &BTreeMap<u64, (Instant, BigUint)>) -> usize {
             if time < &previous {
                 return false;
             }
-            println!("{} {}", i, fib);
             previous = *time;
             i == j && *fib == num
         })
