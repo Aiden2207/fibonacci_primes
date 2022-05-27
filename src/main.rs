@@ -168,7 +168,6 @@ struct CompetitorConfig {
 }
 #[derive(Serialize, Deserialize)]
 struct Config {
-    #[serde(default)]
     competitors: Vec<CompetitorConfig>,
 }
 
