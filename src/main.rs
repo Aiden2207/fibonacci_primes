@@ -55,3 +55,41 @@ impl<R: AsyncRead> AsyncRead for ReadTimeout<R> {
         reader.poll_read(cx, buf)
     }
 }
+
+async fn binary_read_timeout<R: AsyncRead>(
+    r: R,
+    timeout: Duration,
+) -> Result<BTreeMap<u64, (Instant, BigUint)>> {
+    let r = ReadTimeout::new(r, timeout);
+    tokio::pin!(r);
+    let mut map = BTreeMap::new();
+    loop {
+        let index = match r.read_u64().await {
+            Ok(i) => i,
+            Err(e) if e.kind() == ErrorKind::TimedOut => {
+                return Ok(map);
+            }
+            Err(e) => return Err(e),
+        };
+        let mut len = match r.read_u64().await {
+            Ok(i) => i,
+            Err(e) if e.kind() == ErrorKind::TimedOut => {
+                return Ok(map);
+            }
+            Err(e) => return Err(e),
+        };
+        let mut buf = Vec::with_capacity(len as usize);
+        let res = r.read_exact(&mut buf).await;
+        match res {
+            Ok(_) => {
+                let mut num = BigUint::from_bytes_le(&buf);
+                map.insert(index, (Instant::now(), num));
+            }
+            Err(e) if e.kind() == ErrorKind::TimedOut => {
+                return Ok(map);
+            }
+
+            Err(e) => return Err(e),
+        }
+    }
+}
