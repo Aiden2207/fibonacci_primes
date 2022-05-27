@@ -1,0 +1,20 @@
+{
+  "competitors": [
+    {
+      "name": "example",
+      "setup": [
+        {
+          "command": "cargo",
+          "args": [
+            "build",
+            "--release"
+          ]
+        }
+      ],
+      "run": {
+        "command": "target/release/example",
+        "args": []
+      }
+    }
+  ]
+}
