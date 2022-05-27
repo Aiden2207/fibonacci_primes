@@ -8,6 +8,7 @@ fn main() -> Result<()> {
         lock.write_all(&i.to_le_bytes())?;
         lock.write_all(&bytes.len().to_le_bytes())?;
         lock.write_all(&bytes)?;
+        lock.flush()?;
     }
     Ok(())
 }
@@ -32,27 +33,20 @@ fn fibonacci() -> impl Iterator<Item = BigUint> {
         curr: 1u32.into(),
         next: 1u32.into(),
     }
+    .take(100)
 }
 
 fn is_prime(n: &BigUint) -> bool {
+    let bound = n.sqrt();
+    let mut i: BigUint = 2u32.into();
     if n < &2u32.into() {
         return false;
     }
-    if n == &2u32.into() || n == &3u32.into() {
-        return true;
-    }
-    if n % &2u32 == 0u32.into() {
-        return false;
-    }
-    if n % &3u32 == 0u32.into() {
-        return false;
-    }
-    let mut i = 5u32;
-    while n >= &(i * i).into() {
-        if n % i == 0u32.into() || n % (i + 2) == 0u32.into() {
+    while i <= bound {
+        if n % &i == 0u32.into() {
             return false;
         }
-        i += 4u32;
+        i += 1u32;
     }
     true
 }
