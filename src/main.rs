@@ -2,6 +2,7 @@ use nalgebra as na;
 use num_bigint::BigUint;
 use once_cell::sync::Lazy;
 use std::collections::BTreeMap;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = std::env::args();
@@ -29,7 +30,7 @@ const INDICES: [u64; 51] = [
 static FIBS: Lazy<BTreeMap<u64, BigUint>> = Lazy::new(|| {
     INDICES
         .into_iter()
-        .map(|n| (n, fibonacci(n as u32)))
+        .map(|n| (dbg![n], fibonacci(n as u32)))
         .collect()
 });
 fn fibonacci(n: u32) -> BigUint {
@@ -38,14 +39,15 @@ fn fibonacci(n: u32) -> BigUint {
     mat[0].clone()
 }
 
-use std::io::ErrorKind;
-use std::io::Result;
+use anyhow::{Context as _, Result};
+use std::io::{self, ErrorKind};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use tokio::io::*;
+use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
+use tokio::time::timeout;
 #[derive(Debug)]
 struct ReadTimeout<R> {
     reader: R,
@@ -67,7 +69,7 @@ impl<R: AsyncRead> AsyncRead for ReadTimeout<R> {
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<Result<()>> {
+    ) -> Poll<io::Result<()>> {
         if Instant::now() - self.start > self.timeout {
             return Poll::Ready(Err(ErrorKind::TimedOut.into()));
         }
@@ -79,28 +81,39 @@ impl<R: AsyncRead> AsyncRead for ReadTimeout<R> {
 
 async fn binary_read_timeout<R: AsyncRead>(
     r: R,
-    timeout: Duration,
+    limit: Duration,
 ) -> Result<BTreeMap<u64, (Instant, BigUint)>> {
-    let r = ReadTimeout::new(r, timeout);
+    let r = ReadTimeout::new(r, limit);
     tokio::pin!(r);
     let mut map = BTreeMap::new();
     loop {
-        let index = match r.read_u64_le().await {
+        let index = match timeout(limit, r.read_u64_le())
+            .await
+            .map_err(|_| ErrorKind::TimedOut.into())
+            .and_then(|r| r)
+        {
             Ok(i) => i,
             Err(e) if e.kind() == ErrorKind::TimedOut => {
                 return Ok(map);
             }
-            Err(e) => return Err(e),
+            Err(e) => Err(e).context("Failed to read from child stdout")?,
         };
-        let len = match r.read_u64_le().await {
+        let len = match timeout(limit, r.read_u64_le())
+            .await
+            .map_err(|_| ErrorKind::TimedOut.into())
+            .and_then(|r| r)
+        {
             Ok(i) => i,
             Err(e) if e.kind() == ErrorKind::TimedOut => {
                 return Ok(map);
             }
-            Err(e) => return Err(e),
+            Err(e) => Err(e).context("Failed to read from child stdout")?,
         };
         let mut buf = Vec::with_capacity(len as usize);
-        let res = r.read_exact(&mut buf).await;
+        let res = timeout(limit, r.read_exact(&mut buf))
+            .await
+            .map_err(|_| ErrorKind::TimedOut.into())
+            .and_then(|r| r);
         match res {
             Ok(_) => {
                 let num = BigUint::from_bytes_le(&buf);
@@ -110,18 +123,19 @@ async fn binary_read_timeout<R: AsyncRead>(
                 return Ok(map);
             }
 
-            Err(e) => return Err(e),
+            Err(e) => Err(e).context("Failed to read from child stdout")?,
         }
     }
 }
 fn verify_fibs(map: &BTreeMap<u64, (Instant, BigUint)>) -> usize {
-    let mut previous = Instant::now() - Duration::from_secs(10_000_000);
+    let mut previous = Instant::now() - Duration::from_secs(10_000);
     FIBS.iter()
         .zip(map.iter())
         .take_while(|((i, fib), (j, (time, num)))| {
             if time < &previous {
                 return false;
             }
+            println!("{} {}", i, fib);
             previous = *time;
             i == j && *fib == num
         })
@@ -132,7 +146,7 @@ async fn run_command(mut cmd: Command) -> Result<(usize, Duration)> {
     let start = Instant::now();
     let mut child = cmd.spawn()?;
     let map = binary_read_timeout(
-        child.stdout.as_mut().ok_or(ErrorKind::NotFound)?,
+        child.stdout.as_mut().context("child stdout not created")?,
         Duration::from_secs(60),
     )
     .await?;
