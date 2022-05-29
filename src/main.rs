@@ -6,8 +6,12 @@ use std::collections::BTreeMap;
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = std::env::args();
-    let dir = std::fs::canonicalize(args.nth(1).unwrap_or_else(|| ".".into()))?;
-    let config = std::fs::File::open(dir.join("config.json"))?;
+    let path = args.nth(1).unwrap_or_else(|| ".".into());
+    let dir = std::fs::canonicalize(&path)
+        .context(format!("Failed to canonicalize the path `{path}`"))?;
+    let json = dir.join("config.json");
+    let config =
+        std::fs::File::open(&json).context(format!("Failed to read from `{}`", json.display()))?;
     let config: Config = serde_json::from_reader(config)?;
     let mut results = BTreeMap::new();
     for config in config.competitors {
