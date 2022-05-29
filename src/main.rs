@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
     }
     println!("Final results:");
     for ((num, time), name) in results {
-        println!("{name}:\nnum: {num}\ntime: {time:?}");
+        println!("{name}:\n\tnum: {num}\n\ttime: {time:?}");
     }
     Ok(())
 }
@@ -40,6 +40,8 @@ fn fibonacci(n: u32) -> BigUint {
 }
 
 use anyhow::{Context as _, Result};
+use std::future::Future;
+use std::future::{pending, Pending};
 use std::io::{self, ErrorKind};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -47,19 +49,17 @@ use std::process::Stdio;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
-use tokio::time::timeout;
+use tokio::time::{timeout, Timeout};
 #[derive(Debug)]
 struct ReadTimeout<R> {
     reader: R,
-    start: Instant,
-    timeout: Duration,
+    timeout: Timeout<Pending<()>>,
 }
 impl<R> ReadTimeout<R> {
-    fn new(reader: R, timeout: Duration) -> Self {
+    fn new(reader: R, duration: Duration) -> Self {
         Self {
             reader,
-            start: Instant::now(),
-            timeout,
+            timeout: timeout(duration, pending()),
         }
     }
 }
@@ -70,10 +70,11 @@ impl<R: AsyncRead> AsyncRead for ReadTimeout<R> {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        if Instant::now() - self.start > self.timeout {
+        let inner = unsafe { self.get_unchecked_mut() };
+        let res = unsafe { Pin::new_unchecked(&mut inner.timeout) }.poll(cx);
+        if res.is_ready() {
             return Poll::Ready(Err(ErrorKind::TimedOut.into()));
         }
-        let inner = unsafe { self.get_unchecked_mut() };
         let reader = unsafe { Pin::new_unchecked(&mut inner.reader) };
         reader.poll_read(cx, buf)
     }
@@ -87,24 +88,16 @@ async fn binary_read_timeout<R: AsyncRead>(
     tokio::pin!(r);
     let mut map = BTreeMap::new();
     loop {
-        let index = match timeout(limit, r.read_u64_le())
-            .await
-            .map_err(|_| ErrorKind::TimedOut.into())
-            .and_then(|r| r)
-        {
+        let index = match r.read_u64_le().await {
             Ok(i) => i,
-            Err(e) if e.kind() == ErrorKind::TimedOut => {
+            Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::UnexpectedEof) => {
                 return Ok(map);
             }
             Err(e) => Err(e).context("Failed to read from child stdout")?,
         };
-        let len = match timeout(limit, r.read_u64_le())
-            .await
-            .map_err(|_| ErrorKind::TimedOut.into())
-            .and_then(|r| r)
-        {
+        let len = match r.read_u64_le().await {
             Ok(i) => i,
-            Err(e) if e.kind() == ErrorKind::TimedOut => {
+            Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::UnexpectedEof) => {
                 return Ok(map);
             }
             Err(e) => Err(e).context("Failed to read from child stdout")?,
@@ -117,16 +110,13 @@ async fn binary_read_timeout<R: AsyncRead>(
             }
         }
         buf.extend(std::iter::repeat(0u8).take(len as _));
-        let res = timeout(limit, r.read_exact(&mut buf))
-            .await
-            .map_err(|_| ErrorKind::TimedOut.into())
-            .and_then(|r| r);
+        let res = r.read_exact(&mut buf).await;
         match res {
             Ok(_) => {
                 let num = BigUint::from_bytes_le(&buf);
                 map.insert(index, (Instant::now(), num));
             }
-            Err(e) if e.kind() == ErrorKind::TimedOut => {
+            Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::UnexpectedEof) => {
                 return Ok(map);
             }
 
