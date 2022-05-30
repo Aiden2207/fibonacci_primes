@@ -33,7 +33,6 @@ fn fibonacci() -> impl Iterator<Item = BigUint> {
         curr: 1u32.into(),
         next: 1u32.into(),
     }
-    .take(100)
 }
 
 fn is_prime(n: &BigUint) -> bool {
