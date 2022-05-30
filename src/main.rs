@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
     }
     println!("Final results:");
     for ((num, time), name) in results {
-        println!("{name}:\n\tnum: {num}\n\ttime: {time:?}");
+        println!("  {name}:\n    num: {num}\n    time: {time:?}");
     }
     Ok(())
 }
@@ -152,9 +152,9 @@ async fn run_command(mut cmd: Command) -> Result<(usize, Duration)> {
     .await?;
     child.kill().await?;
     let count = verify_fibs(&map);
-    println!("Total count:{}", count);
+    println!("Total count: {}", count);
     for (i, (_, (time, _))) in map.iter().take(count).enumerate() {
-        println!("Fibonacci prime {} reached in: {:?}", i, *time - start);
+        println!("  Fibonacci prime {} reached in: {:?}", i, *time - start);
         if i + 1 == count {
             return Ok((i, *time - start));
         }
@@ -186,6 +186,7 @@ struct Config {
 }
 
 struct Competitor {
+    name: String,
     setup: Vec<Command>,
     run: Command,
 }
@@ -211,12 +212,19 @@ impl Competitor {
         run.stderr(Stdio::piped());
         run.stdout(Stdio::piped());
         run.stdin(Stdio::null());
-        Ok(Self { setup, run })
+        Ok(Self {
+            setup,
+            run,
+            name: config.name.clone(),
+        })
     }
     async fn execute(self) -> Result<(usize, Duration)> {
         for command in self.setup {
             setup_command(command).await?;
         }
-        run_command(self.run).await
+        println!("Running `{}`", self.name);
+        let res = run_command(self.run).await?;
+        println!("Finished `{}`", self.name);
+        Ok(res)
     }
 }
