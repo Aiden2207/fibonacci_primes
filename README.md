@@ -1,8 +1,7 @@
 # Fibonacci Prime Tester
 
-This is the controller for the [Generate Fibonacci Primes Quickly](https://codegolf.meta.stackexchange.com/a/24788/97691) challenge.
- Currently, it's still in the sandbox, but will hopefully be up sometime soonish.
-
+This is the controller for the [Generate Fibonacci Primes Quickly](https://codegolf.stackexchange.com/questions/248746/generate-fibonacci-primes-quickly) challenge.
+ The challenge is now live! Feel free to enter.
 ## Installation
 
 You need an up to date version of rust to install this code. To install just the tool run `cargo install --git https://github.com/Aiden2207/fibonacci_primes.git`. If you want to run all the competitors, I recommend installing via `git clone https://github.com/Aiden2207/fibonacci_primes.git` followed by `cargo install --path path/to/cloned/repo`.
