@@ -1,16 +1,8 @@
 use num_bigint::BigUint;
-use std::io::prelude::*;
-use std::io::Result;
-fn main() -> Result<()> {
+fn main() {
     for (n, i) in fibonacci().zip(1u64..).filter(|(n, _)| is_prime(n)) {
-        let bytes = n.to_bytes_le();
-        let mut lock = std::io::stdout().lock();
-        lock.write_all(&i.to_le_bytes())?;
-        lock.write_all(&bytes.len().to_le_bytes())?;
-        lock.write_all(&bytes)?;
-        lock.flush()?;
+        println!("{},{}", i, n);
     }
-    Ok(())
 }
 
 //iterator for fibonacci numbers

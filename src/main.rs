@@ -52,7 +52,7 @@ use std::pin::Pin;
 use std::process::Stdio;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncBufReadExt, ReadBuf, AsyncBufRead, BufReader};
 use tokio::time::{timeout, Timeout};
 #[derive(Debug)]
 struct ReadTimeout<R> {
@@ -67,6 +67,28 @@ impl<R> ReadTimeout<R> {
         }
     }
 }
+
+impl<R:AsyncBufRead> AsyncBufRead for ReadTimeout<R>{
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        unsafe{
+           let r = &mut self.get_unchecked_mut().reader;
+           let pin = Pin::new_unchecked(r);
+           pin.consume(amt);
+        }
+
+    }
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        let inner = unsafe { self.get_unchecked_mut() };
+        let res = unsafe { Pin::new_unchecked(&mut inner.timeout) }.poll(cx);
+        if res.is_ready() {
+            return Poll::Ready(Err(ErrorKind::TimedOut.into()));
+        }
+        let reader = unsafe { Pin::new_unchecked(&mut inner.reader) };
+        reader.poll_fill_buf(cx)
+    }
+}
+
+
 
 impl<R: AsyncRead> AsyncRead for ReadTimeout<R> {
     fn poll_read(
@@ -84,49 +106,40 @@ impl<R: AsyncRead> AsyncRead for ReadTimeout<R> {
     }
 }
 
-async fn binary_read_timeout<R: AsyncRead>(
+async fn binary_read_timeout<R: AsyncBufRead>(
     r: R,
     limit: Duration,
 ) -> Result<BTreeMap<u64, (Instant, BigUint)>> {
     let r = ReadTimeout::new(r, limit);
     tokio::pin!(r);
-    let mut map = BTreeMap::new();
+    let mut vec = vec![];
     loop {
-        let index = match r.read_u64_le().await {
-            Ok(i) => i,
-            Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::UnexpectedEof) => {
-                return Ok(map);
-            }
-            Err(e) => Err(e).context("Failed to read from child stdout")?,
-        };
-        let len = match r.read_u64_le().await {
-            Ok(i) => i,
-            Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::UnexpectedEof) => {
-                return Ok(map);
-            }
-            Err(e) => Err(e).context("Failed to read from child stdout")?,
-        };
-        let mut buf = Vec::new();
-        match buf.try_reserve(len as _) {
-            Ok(_) => (),
-            Err(_) => {
-                return Ok(map);
-            }
+        let mut buf = String::new();
+        let line = r.read_line(&mut buf).await;
+        match line {
+            Ok(0)  => break,
+            Ok(_) =>{
+                vec.push((buf, Instant::now()));
+            }           
+            Err(e) => {
+                if e.kind() == ErrorKind::TimedOut {
+                    break;
+                } else {
+                    Err(e)?;
+                }
+            } 
         }
-        buf.extend(std::iter::repeat(0u8).take(len as _));
-        let res = r.read_exact(&mut buf).await;
-        match res {
-            Ok(_) => {
-                let num = BigUint::from_bytes_le(&buf);
-                map.insert(index, (Instant::now(), num));
-            }
-            Err(e) if matches!(e.kind(), ErrorKind::TimedOut | ErrorKind::UnexpectedEof) => {
-                return Ok(map);
-            }
 
-            Err(e) => Err(e).context("Failed to read from child stdout")?,
-        }
     }
+    Ok(vec.into_iter().map_while(|(line, time)|{
+        let mut iter = line.split(',');
+        let first = iter.next()?.trim().parse::<u64>().ok()?;
+        let second = iter.next()?.trim().parse::<BigUint>().ok()?;
+        if iter.next().is_some() {
+            return None;
+        }
+        Some((first, (time, second)))
+    }).collect())
 }
 fn verify_fibs(map: &BTreeMap<u64, (Instant, BigUint)>) -> usize {
     let mut previous = Instant::now() - Duration::from_secs(10_000);
@@ -146,7 +159,7 @@ async fn run_command(mut cmd: Command) -> Result<(usize, Duration)> {
     let start = Instant::now();
     let mut child = cmd.spawn()?;
     let map = binary_read_timeout(
-        child.stdout.as_mut().context("child stdout not created")?,
+        BufReader::new(child.stdout.as_mut().context("child stdout not created")?),
         Duration::from_secs(60),
     )
     .await?;
