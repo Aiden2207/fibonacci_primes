@@ -12,10 +12,10 @@
         }
       ],
       "run": {
-        "command": "cargo",
+        "command": "sh",
         "args": [
-          "run",
-          "--release"
+          "../run_rust.sh",
+          "target/release/example"
         ]
       }
     }
