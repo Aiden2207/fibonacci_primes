@@ -172,7 +172,7 @@ async fn run_command(mut cmd: Command) -> Result<(usize, Duration)> {
             return Ok((i, *time - start));
         }
     }
-    unreachable!()
+    return Ok((0, Duration::from_secs(0)));
 }
 async fn setup_command(mut cmd: Command) -> Result<()> {
     cmd.spawn()?.wait().await?;
@@ -233,10 +233,10 @@ impl Competitor {
     }
     async fn execute(self) -> Result<(usize, Duration)> {
         for command in self.setup {
-            setup_command(command).await?;
+            setup_command(command).await.context("setup failed")?;
         }
         println!("Running `{}`", self.name);
-        let res = run_command(self.run).await?;
+        let res = run_command(self.run).await.context("run failed")?;
         println!("Finished `{}`", self.name);
         Ok(res)
     }

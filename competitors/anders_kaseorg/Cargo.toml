@@ -1,0 +1,8 @@
+[package]
+name = "fibprimes"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pariter = "0.5.1"
+rug = { version = "1.16.0", features = ["integer"], default-features = false }

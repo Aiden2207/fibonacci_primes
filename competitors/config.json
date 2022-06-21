@@ -1,6 +1,25 @@
 {
   "competitors": [
     {
+      "name": "anders_kaseorg",
+      "setup": [
+        {
+          "command": "cargo",
+          "args": [
+            "build",
+            "--release"
+          ]
+        }
+      ],
+      "run": {
+        "command": "cargo",
+        "args": [
+          "run",
+          "--release"
+        ]
+      }
+    },
+    {
       "name": "example",
       "setup": [
         {
