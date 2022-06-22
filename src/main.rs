@@ -1,6 +1,7 @@
 use nalgebra as na;
 use num_bigint::BigUint;
 use once_cell::sync::Lazy;
+use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 #[tokio::main]
@@ -17,10 +18,10 @@ async fn main() -> Result<()> {
     for config in config.competitors {
         let competitor = Competitor::from_config(&config, dir.clone())?;
         let result = competitor.execute().await?;
-        results.insert(result, config.name);
+        results.insert(Reverse(result), config.name);
     }
     println!("Final results:");
-    for ((num, time), name) in results {
+    for (Reverse((num, time)), name) in results {
         println!("  {name}:\n    num: {num}\n    time: {time:?}");
     }
     Ok(())
@@ -213,15 +214,15 @@ impl Competitor {
                 let mut command = Command::new(c.command.as_str());
                 command.args(c.args.iter());
                 command.current_dir(&dir);
-                command.stderr(Stdio::piped());
-                command.stdout(Stdio::piped());
+                command.stderr(Stdio::inherit());
+                command.stdout(Stdio::inherit());
                 command.stdin(Stdio::null());
                 command
             })
             .collect::<Vec<_>>();
         let mut run = Command::new(config.run.command.as_str());
         run.args(config.run.args.iter());
-        run.current_dir(dir);
+        run.current_dir(dbg![dir]);
         run.stderr(Stdio::piped());
         run.stdout(Stdio::piped());
         run.stdin(Stdio::null());

@@ -1,22 +1,24 @@
 {
   "competitors": [
     {
-      "name": "example",
+      "name": "aleph_alpha",
       "setup": [
         {
-          "command": "cargo",
+          "command": "gcc",
           "args": [
-            "build",
-            "--release"
+            "-o",
+            "main",
+            "-O3",
+            "-L",
+            ".",
+            "-l",
+            "pari",
+            "main.c"
           ]
         }
       ],
       "run": {
-        "command": "sh",
-        "args": [
-          "../run_rust.sh",
-          "target/release/example"
-        ]
+        "command": ".\\competitors\\aleph_alpha\\main.exe"
       }
     },
     {
@@ -31,10 +33,29 @@
         }
       ],
       "run": {
-        "command": "sh",
+        "command": "cargo",
         "args": [
-          "../run_rust.sh",
-          "target/release/fibprimes"
+          "run",
+          "--release"
+        ]
+      }
+    },
+    {
+      "name": "example",
+      "setup": [
+        {
+          "command": "cargo",
+          "args": [
+            "build",
+            "--release"
+          ]
+        }
+      ],
+      "run": {
+        "command": "cargo",
+        "args": [
+          "run",
+          "--release"
         ]
       }
     }
