@@ -168,9 +168,9 @@ async fn run_command(mut cmd: Command) -> Result<(usize, Duration)> {
     let count = verify_fibs(&map);
     println!("Total count: {}", count);
     for (i, (_, (time, _))) in map.iter().take(count).enumerate() {
-        println!("  Fibonacci prime {} reached in: {:?}", i, *time - start);
+        println!("  Fibonacci prime {} reached in: {:?}", i +1, *time - start);
         if i + 1 == count {
-            return Ok((i, *time - start));
+            return Ok((i + 1, *time - start));
         }
     }
     return Ok((0, Duration::from_secs(0)));
